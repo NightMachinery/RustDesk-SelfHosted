@@ -496,7 +496,44 @@ install_linux() {{
 }}
 
 install_macos() {{
-	echo "Download the mirrored macOS DMG from $BASE_URL and install it, then re-run this script to write config."
+	arch=$(uname -m 2>/dev/null || echo unknown)
+	tmp=$(mktemp -d)
+	mount_point="$tmp/mnt"
+	trap 'hdiutil detach "$mount_point" >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT INT TERM
+	case "$arch" in
+		arm64|aarch64)
+			dmg=$(manifest_asset 'aarch64\\.dmg$' || true)
+			;;
+		x86_64|amd64)
+			dmg=$(manifest_asset 'x86_64\\.dmg$' || true)
+			;;
+		*) echo "unsupported macOS architecture: $arch" >&2; return 1 ;;
+	esac
+	if [ -z "${{dmg:-}}" ]; then
+		echo "no mirrored macOS DMG matched this architecture; run ./self_host.py mirror macos on the server" >&2
+		return 1
+	fi
+	download "$BASE_URL/packages/$dmg" "$tmp/rustdesk.dmg"
+	mkdir -p "$mount_point"
+	hdiutil attach "$tmp/rustdesk.dmg" -nobrowse -readonly -mountpoint "$mount_point" >/dev/null
+	app=$(find "$mount_point" -maxdepth 2 -name '*.app' -type d | head -n 1)
+	if [ -z "$app" ]; then
+		echo "mirrored DMG did not contain a macOS app bundle" >&2
+		return 1
+	fi
+	target="/Applications/$(basename "$app")"
+	if [ -w /Applications ]; then
+		rm -rf "$target"
+		ditto "$app" "$target"
+	else
+		if ! have sudo; then
+			echo "need write access to /Applications or sudo to install RustDesk" >&2
+			return 1
+		fi
+		sudo rm -rf "$target"
+		sudo ditto "$app" "$target"
+	fi
+	echo "installed $target"
 }}
 
 case "$(uname -s 2>/dev/null || echo unknown)" in

@@ -88,6 +88,10 @@ Linux/macOS command:
 curl -fsSL https://rustdesk.pinky.lilf.ir/install.sh | sh
 ```
 
+On macOS, the script downloads the mirrored DMG for the local architecture,
+mounts it, installs the app into `/Applications`, and writes the RustDesk
+server config.
+
 Windows PowerShell command:
 
 ```powershell
