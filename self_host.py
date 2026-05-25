@@ -441,6 +441,17 @@ download() {{
 	curl -fsSL "$1" -o "$2"
 }}
 
+as_root() {{
+	if [ "$(id -u)" -eq 0 ]; then
+		"$@"
+	elif have sudo; then
+		sudo "$@"
+	else
+		echo "need root or sudo to install RustDesk" >&2
+		return 1
+	fi
+}}
+
 manifest_asset() {{
 	curl -fsSL "$BASE_URL/packages/packages.txt" | grep -E "$1" | head -n 1
 }}
@@ -465,32 +476,35 @@ install_linux() {{
 	trap 'rm -rf "$tmp"' EXIT INT TERM
 	case "$arch" in
 		x86_64|amd64)
-			deb=$(manifest_asset 'x86_64\\.deb$' || true)
-			appimage=$(manifest_asset 'x86_64\\.AppImage$' || true)
+			deb=$(manifest_asset '-x86_64\\.deb$' || true)
+			rpm=$(manifest_asset '-0\\.x86_64\\.rpm$' || true)
+			pkg=$(manifest_asset '-0-x86_64\\.pkg\\.tar\\.zst$' || true)
+			appimage=$(manifest_asset '-x86_64\\.AppImage$' || true)
 			;;
 		aarch64|arm64)
-			deb=$(manifest_asset 'aarch64\\.deb$' || true)
-			appimage=$(manifest_asset 'aarch64\\.AppImage$' || true)
+			deb=$(manifest_asset '-aarch64\\.deb$' || true)
+			rpm=$(manifest_asset '-0\\.aarch64\\.rpm$' || true)
+			pkg=""
+			appimage=$(manifest_asset '-aarch64\\.AppImage$' || true)
 			;;
 		*) echo "unsupported Linux architecture: $arch" >&2; return 1 ;;
 	esac
 	if [ -n "${{deb:-}}" ] && have dpkg; then
 		download "$BASE_URL/packages/$deb" "$tmp/rustdesk.deb"
-		if [ "$(id -u)" -eq 0 ]; then
-			dpkg -i "$tmp/rustdesk.deb"
-		elif have sudo; then
-			sudo dpkg -i "$tmp/rustdesk.deb"
-		else
-			echo "need root or sudo to install deb" >&2
-			return 1
-		fi
+		as_root dpkg -i "$tmp/rustdesk.deb"
+	elif [ -n "${{rpm:-}}" ] && have rpm; then
+		download "$BASE_URL/packages/$rpm" "$tmp/rustdesk.rpm"
+		as_root rpm -Uvh --replacepkgs "$tmp/rustdesk.rpm"
+	elif [ -n "${{pkg:-}}" ] && have pacman; then
+		download "$BASE_URL/packages/$pkg" "$tmp/rustdesk.pkg.tar.zst"
+		as_root pacman -U --noconfirm "$tmp/rustdesk.pkg.tar.zst"
 	elif [ -n "${{appimage:-}}" ]; then
 		mkdir -p "$HOME/.local/bin"
 		download "$BASE_URL/packages/$appimage" "$HOME/.local/bin/rustdesk.AppImage"
 		chmod +x "$HOME/.local/bin/rustdesk.AppImage"
 		echo "installed AppImage to $HOME/.local/bin/rustdesk.AppImage"
 	else
-		echo "no mirrored Linux package matched this architecture" >&2
+		echo "no mirrored Linux package can be installed on this system; run ./self_host.py mirror linux on the server" >&2
 		return 1
 	fi
 }}
@@ -537,7 +551,7 @@ install_macos() {{
 }}
 
 case "$(uname -s 2>/dev/null || echo unknown)" in
-	Linux) install_linux || true ;;
+	Linux) install_linux ;;
 	Darwin) install_macos ;;
 	*) echo "unsupported OS for installer" >&2 ;;
 esac

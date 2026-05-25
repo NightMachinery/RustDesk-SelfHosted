@@ -88,9 +88,11 @@ Linux/macOS command:
 curl -fsSL https://rustdesk.pinky.lilf.ir/install.sh | sh
 ```
 
-On macOS, the script downloads the mirrored DMG for the local architecture,
-mounts it, installs the app into `/Applications`, and writes the RustDesk
-server config.
+On Linux, the script installs a mirrored native package when the matching tool is
+available: `dpkg` for `.deb`, `rpm` for `.rpm`, `pacman` for `.pkg.tar.zst`, then
+AppImage as the fallback. On macOS, it downloads the mirrored DMG for the local
+architecture, mounts it, installs the app into `/Applications`, and writes the
+RustDesk server config.
 
 Windows PowerShell command:
 
@@ -106,6 +108,10 @@ Android:
 4. Install it manually.
 5. In RustDesk network/server settings, set the ID server, relay server, and key
    shown on the page.
+
+Android is manual because a normal browser-downloaded script cannot silently
+install an APK or grant RustDesk permissions on Android. Use device-management
+tooling or `adb install` if you need unattended Android deployment.
 
 The installers and page write/apply this OSS client config:
 
