@@ -456,18 +456,56 @@ manifest_asset() {{
 	curl -fsSL "$BASE_URL/packages/packages.txt" | grep -E "$1" | head -n 1
 }}
 
-write_config() {{
-	os=$(uname -s 2>/dev/null || echo unknown)
-	case "$os" in
-		Darwin) cfg="$HOME/Library/Application Support/RustDesk/config/RustDesk2.toml" ;;
-		Linux) cfg="$HOME/.config/rustdesk/RustDesk2.toml" ;;
-		*) echo "unsupported OS for config: $os" >&2; return 1 ;;
+stop_rustdesk() {{
+	case "$(uname -s 2>/dev/null || echo unknown)" in
+		Darwin) pkill -x RustDesk >/dev/null 2>&1 || true ;;
+		Linux) pkill -x rustdesk >/dev/null 2>&1 || true ;;
 	esac
+}}
+
+rustdesk_cmd() {{
+	case "$(uname -s 2>/dev/null || echo unknown)" in
+		Darwin)
+			if [ -x /Applications/RustDesk.app/Contents/MacOS/RustDesk ]; then
+				printf '%s\n' /Applications/RustDesk.app/Contents/MacOS/RustDesk
+				return 0
+			fi
+			if [ -x "$HOME/Applications/RustDesk.app/Contents/MacOS/RustDesk" ]; then
+				printf '%s\n' "$HOME/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+				return 0
+			fi
+			;;
+		Linux)
+			if have rustdesk; then
+				command -v rustdesk
+				return 0
+			fi
+			;;
+	esac
+	return 1
+}}
+
+write_config_file() {{
+	cfg="$1"
 	mkdir -p "$(dirname "$cfg")"
 	cat > "$cfg" <<'CONFIG'
 {toml}
 CONFIG
 	echo "wrote $cfg"
+}}
+
+write_config() {{
+	os=$(uname -s 2>/dev/null || echo unknown)
+	case "$os" in
+		Darwin)
+			write_config_file "$HOME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
+			write_config_file "$HOME/Library/Application Support/RustDesk/config/RustDesk2.toml"
+			;;
+		Linux)
+			write_config_file "$HOME/.config/rustdesk/RustDesk2.toml"
+			;;
+		*) echo "unsupported OS for config: $os" >&2; return 1 ;;
+	esac
 }}
 
 install_linux() {{
@@ -556,11 +594,13 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
 	*) echo "unsupported OS for installer" >&2 ;;
 esac
 
+stop_rustdesk
 write_config
-if have rustdesk; then
-	rustdesk --option custom-rendezvous-server "$HOST" >/dev/null 2>&1 || true
-	rustdesk --option relay-server "$HOST" >/dev/null 2>&1 || true
-	rustdesk --option key "$KEY" >/dev/null 2>&1 || true
+cmd=$(rustdesk_cmd || true)
+if [ -n "$cmd" ]; then
+	"$cmd" --option custom-rendezvous-server "$HOST" >/dev/null 2>&1 || true
+	"$cmd" --option relay-server "$HOST" >/dev/null 2>&1 || true
+	"$cmd" --option key "$KEY" >/dev/null 2>&1 || true
 fi
 echo "RustDesk is configured for $HOST"
 """

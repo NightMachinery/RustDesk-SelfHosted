@@ -92,7 +92,9 @@ On Linux, the script installs a mirrored native package when the matching tool i
 available: `dpkg` for `.deb`, `rpm` for `.rpm`, `pacman` for `.pkg.tar.zst`, then
 AppImage as the fallback. On macOS, it downloads the mirrored DMG for the local
 architecture, mounts it, installs the app into `/Applications`, and writes the
-RustDesk server config.
+RustDesk server config to the macOS preference path
+`~/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml`. It also updates the
+older Application Support path as a compatibility fallback.
 
 Windows PowerShell command:
 
