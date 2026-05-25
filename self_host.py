@@ -14,6 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+from http.client import RemoteDisconnected
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -178,15 +179,63 @@ def server_arch() -> str:
 
 
 def fetch_json(url: str):
+    if shutil.which("curl"):
+        result = run(
+            [
+                "curl",
+                "-fsSL",
+                "--retry",
+                "10",
+                "--retry-all-errors",
+                "--retry-delay",
+                "2",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "120",
+                url,
+            ],
+            capture=True,
+        )
+        return json.loads(result.stdout)
     request = urllib.request.Request(url, headers={"User-Agent": "rustdesk-self-host/1"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(10):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except RemoteDisconnected:
+            if attempt == 9:
+                raise
+            time.sleep(2)
+    die(f"failed to fetch {url}")
 
 
-def download(url: str, *, destination: Path) -> None:
+def download(url: str, *, destination: Path, expected_sha256: str | None = None) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp = destination.with_suffix(destination.suffix + ".tmp")
-    if shutil.which("curl"):
+    if shutil.which("aria2c"):
+        run(
+            [
+                "aria2c",
+                "--continue=true",
+                "--max-connection-per-server=8",
+                "--split=8",
+                "--min-split-size=1M",
+                "--retry-wait=2",
+                "--max-tries=20",
+                "--connect-timeout=20",
+                "--timeout=120",
+                "--allow-overwrite=true",
+                "--auto-file-renaming=false",
+                "--dir",
+                str(tmp.parent),
+                "--out",
+                tmp.name,
+                url,
+            ]
+        )
+        tmp.replace(destination)
+    elif shutil.which("curl"):
         run(
             [
                 "curl",
@@ -208,11 +257,12 @@ def download(url: str, *, destination: Path) -> None:
             ]
         )
         tmp.replace(destination)
-        return
-    request = urllib.request.Request(url, headers={"User-Agent": "rustdesk-self-host/1"})
-    with urllib.request.urlopen(request, timeout=120) as response, tmp.open("wb") as out:
-        shutil.copyfileobj(response, out)
-    tmp.replace(destination)
+    else:
+        request = urllib.request.Request(url, headers={"User-Agent": "rustdesk-self-host/1"})
+        with urllib.request.urlopen(request, timeout=120) as response, tmp.open("wb") as out:
+            shutil.copyfileobj(response, out)
+        tmp.replace(destination)
+    verify_sha256(destination, expected_sha256=expected_sha256)
 
 
 def sha256_file(path: Path) -> str:
@@ -221,6 +271,22 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def asset_sha256(asset) -> str | None:
+    digest = asset.get("digest")
+    if isinstance(digest, str) and digest.startswith("sha256:"):
+        return digest.removeprefix("sha256:")
+    return None
+
+
+def verify_sha256(path: Path, *, expected_sha256: str | None) -> None:
+    if not expected_sha256:
+        return
+    actual = sha256_file(path)
+    if actual.lower() != expected_sha256.lower():
+        path.unlink(missing_ok=True)
+        die(f"checksum mismatch for {path.name}: expected {expected_sha256}, got {actual}")
 
 
 def latest_release(repo: str):
@@ -243,7 +309,7 @@ def ensure_server_binaries(config: AppConfig) -> None:
     asset = choose_asset(release, predicate=lambda name: name == asset_name)
     archive = config.paths.downloads / asset_name
     log(f"downloading {asset_name} from rustdesk-server {release['tag_name']}")
-    download(asset["browser_download_url"], destination=archive)
+    download(asset["browser_download_url"], destination=archive, expected_sha256=asset_sha256(asset))
     extract_dir = config.paths.self_host / "server-extract"
     if extract_dir.exists():
         shutil.rmtree(extract_dir)
@@ -770,7 +836,9 @@ def mirror(config: AppConfig, *, platform_name: str, raw_url: str) -> None:
         path = config.paths.packages / name
         if not path.exists() or path.stat().st_size != asset.get("size", -1):
             log(f"mirroring {name}")
-            download(asset["browser_download_url"], destination=path)
+            download(asset["browser_download_url"], destination=path, expected_sha256=asset_sha256(asset))
+        else:
+            verify_sha256(path, expected_sha256=asset_sha256(asset))
     assets = mirrored_assets(config)
     selected = [asset for asset in assets if platform_matches(asset.name, platform_name)]
     if not selected:

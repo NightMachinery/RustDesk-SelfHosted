@@ -22,13 +22,17 @@ Install these host tools first:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y python3 tmux caddy curl unzip iproute2
+sudo apt-get install -y python3 tmux caddy aria2 curl unzip iproute2
 ```
 
 The script downloads official RustDesk release assets with the current shell
 environment. Proxy variables such as `ALL_PROXY`, `HTTPS_PROXY`, `NO_PROXY`,
 `npm_config_proxy`, and lowercase variants are not hardcoded, but they are
 passed through to tmux sessions when already present.
+
+Downloads prefer `aria2c` with 8 parallel connections/splits and resume support,
+then fall back to resumable `curl`. When GitHub publishes a `sha256:` digest for
+an asset, the script verifies the downloaded file before using or mirroring it.
 
 ## Commands
 
